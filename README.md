@@ -1,4 +1,4 @@
-# DUCKS (Dynamic API for Unleashing Cloud KubeFlow Stability)
+# DUCKS (Dynamic API for Unleashing Cloud KServe)
 ## _A walkthrough on creating ephemeral AI, GPU driven APIs in the Cloud_
 
 //IMAGE TO BE CREATED UPON COMPLETION
@@ -35,13 +35,22 @@ First we'll do it in our local environment:
 - [KServe](#kserve): You must install these tools:
 > If you start from scratch, KServe requires Kubernetes 1.17+, Knative 0.19+, Istio 1.9+.
 
-    - go: KServe controller is written in Go and requires Go 1.18.0+.
-    - git: For source control.
-    - Go Module: Go's new dependency management system.
-    - ko: For development.
-    - kubectl: For managing development environments.
-    - kustomize To customize YAMLs for different environments, requires v3.5.4+.
-    - yq yq is used in the project makefiles to parse and display YAML output requires yq 4.*.
+
+<!-- 
+- [go](https://go.dev/dl/): KServe controller is written in Go and requires Go 1.18.0+.
+- git: For source control.
+- Go Module: Go's new dependency management system.
+- ko: For development.
+- kubectl: For managing development environments.
+- kustomize To customize YAMLs for different environments, requires v3.5.4+.
+- yq yq is used in the project makefiles to parse and display YAML output requires yq 4.*. -->
+
+<!-- ```shell
+$ go version
+go version go1.21.0 windows/386
+$ git version 
+git version 2.39.1.windows.1
+``` -->
 
 ## HOW R HAXOR!?
 ![Alt Text](./media/images/swordfish-hack.gif)
@@ -95,6 +104,49 @@ Now that we have a context referencing our local cluster, we need a namespace:
 ```shell
 kubectl create namespace kserve-test
 ```
+Once we've created the namespace we'll want to set it to our current context:
+
+```shell
+kubectl config set-context --current --namespace kserve-test
+kubectl config get-contexts
+```
+
+Now your namespace should be defined for your current context:
+
+```shell
+CURRENT   NAME                CLUSTER             AUTHINFO                     NAMESPACE
+*         kind-local-kserve   kind-local-kserve   kind-local-kserve            kserve-test
+```
+
+
+Before we can run the InferenceService on KServe we have to install the quickstart services onto KIND. First lets use Docker Exec to open a terminal in our KIND (K8s in Docker) environment:
+
+```shell
+$ docker ps
+CONTAINER ID   IMAGE                  COMMAND                  CREATED        STATUS        PORTS                       NAMES
+<CONTAINER_ID>   kindest/node:v1.27.3   "/usr/local/bin/entr…"   15 hours ago   Up 15 hours   127.0.0.1:56227->6443/tcp   local-kserve-control-plane
+```
+Now that we know the ID for our KIND container, we'll Docker Exec into the container and run the quickstart install from [KServe Quickstart Guiide](https://kserve.github.io/website/0.10/get_started/#install-the-kserve-quickstart-environment) and be sure to exit the container's bash before continuing: 
+
+```shell
+terminal: $ docker exec -it <CONTAINER_ID> /bin/bash
+root@local-kserve-control-plane: $ curl -s "https://raw.githubusercontent.com/kserve/kserve/release-0.10/hack/quick_install.sh" | bash
+root@local-kserve-control-plane: $ exit
+```
+[KServe Quickstart Guide](https://kserve.github.io/website/0.10/get_started/#before-you-begin)
+Now take the CONTAINER ID and use the following:
+
+In Kubernetes, the [CRDs](#custom-resource-definitions-crds) (Custom Resource Definitions) are installed on the Kubernetes controller (specifically within the API server) so that it understands and recognizes the custom resources you define.
+
+The controller acts as the central brain of the Kubernetes cluster. It continuously monitors the desired state of your resources and takes actions to maintain that desired state. When a new custom resource is introduced via the [CRD](#custom-resource-definitions-crds), the controller learns about it and establishes the corresponding API endpoints to manage and interact with these resources.
+
+With the CRDs installed on the controller, the pods (running applications or containers) can then interact with the Kubernetes API server to create, update, or delete instances of the custom resources. This allows the pods to utilize the Kubernetes control plane for managing and orchestrating these custom resources.
+
+By defining your own custom resources using CRDs, you can extend the Kubernetes API and leverage Kubernetes' robust infrastructure management capabilities for your specific application needs.
+
+It's worth noting that CRDs do not directly provide network routing functionality, but rather enable you to define and manage custom resources that may interact with the networking components of your Kubernetes cluster, such as ingress controllers or service meshes.
+
+I hope this clarifies the relationship between CRDs, pods, and the controller within Kubernetes. Let me know if you have further questions!
 
 Clone this repo and run 
 
@@ -122,9 +174,21 @@ Think of a container like a shipping container for software. Docker is a company
 
 [Kubernetes](https://kubernetes.io/docs/concepts/overview/), also known as K8s, is an open-source system for automating deployment, scaling, and management of containerized applications.
 
+#### Control Plane
+
+The control plane is responsible for managing and controlling the Kubernetes cluster. It consists of various components, such as the API server, controller manager, scheduler, and etcd. These components work together to maintain the desired state of the cluster and handle tasks like scheduling pods, scaling resources, and managing networking.
+
+#### Context
+
+In Kubernetes, a context is a set of access parameters that determine the cluster, user, and namespace to use when interacting with the cluster. It includes information like the cluster's server address, authentication credentials, and the default namespace. Contexts allow users to switch between different clusters or namespaces without having to reconfigure their command-line tools.
+
+#### Cluster
+
+A cluster in Kubernetes refers to a set of physical or virtual machines, called nodes, that work together to run containerized applications. It includes the control plane components and worker nodes. The control plane manages the cluster, while the worker nodes host the running containers.
+
 ### KServe
 
-[KServe](https://github.com/kserve/kserve) provides a Kubernetes Custom Resource Definition for serving machine learning (ML) models on arbitrary frameworks. It aims to solve production model serving use cases by providing performant, high abstraction interfaces for common ML frameworks like Tensorflow, XGBoost, ScikitLearn, PyTorch, and ONNX.
+[KServe](https://github.com/kserve/kserve) provides a Kubernetes [Custom Resource Definition](#custom-resource-definitions-crds) for serving machine learning (ML) models on arbitrary frameworks. It aims to solve production model serving use cases by providing performant, high abstraction interfaces for common ML frameworks like Tensorflow, XGBoost, ScikitLearn, PyTorch, and ONNX.
 
 It encapsulates the complexity of autoscaling, networking, health checking, and server configuration to bring cutting edge serving features like GPU Autoscaling, Scale to Zero, and Canary Rollouts to your ML deployments. It enables a simple, pluggable, and complete story for Production ML Serving including prediction, pre-processing, post-processing and explainability. KServe is being used across various organizations.
 
@@ -139,7 +203,9 @@ The [KubeFlow](https://www.kubeflow.org) project is dedicated to making deployme
 - The beauty of serverless is its economic model: when there's no traffic, there's no cost.
 
 
+### Custom Resource Definitions (CRDs)
 
+A [Custom Resource Definition](https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/) is a reference to an external API that deviates from Kubernetes core functionality. In our case, InferenceService is a kind (not to be confused with K8s in Docker) that is only defined in the API for _serving.kserve.io/v1beta1_. We will need to load the CRDs before we are able to reference components of KServe.
 
 
 ------
