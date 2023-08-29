@@ -1,0 +1,142 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: "model-serving-template"
+spec:
+  entrypoint: main
+  serviceAccountName: inference
+  arguments:
+    parameters:
+    - name: run_name
+    - name: model
+      value: 'stabilityai/stable-diffusion-2-1-base'
+    - name: region
+      value: 'LAS1'
+    - name: inference_gpu
+      value: 'Quadro_RTX_5000'
+    - name: downloader_image
+      value: 'ghcr.io/wbrown/gpt_bpe/model_downloader'
+    - name: downloader_tag
+      value: 'e2ef65f'
+    - name: inference_image
+      value: 'navarrepratt/sd-inference'  # TODO: Update with CoreWeave hosted image
+    - name: inference_tag
+      value: 'df-14-3'
+
+  templates:
+  - name: main
+    steps:
+    - - name: downloader
+        template: model-downloader
+        arguments:
+          parameters:
+            - name: model
+              value: "{{workflow.parameters.model}}"
+            - name: dest
+              value: "/{{workflow.parameters.pvc}}/models/{{workflow.parameters.model}}"
+            - name: type
+              value: "diffusers"
+
+    - - name: inference
+        template: model-inference-service
+        arguments:
+          parameters:
+            - name: command
+              value: '["python3", "/app/service.py", "--model-id", "/mnt/pvc/models/{{workflow.parameters.model}}"]'
+
+  - name: model-downloader
+    inputs:
+      parameters:
+        - name: model
+        - name: dest
+        - name: type
+    retryStrategy:
+      limit: 1
+    initContainers:
+      - name: dataset-perms
+        image: alpine:3.17
+        command: [ "/bin/sh" ]
+        args:
+          - "-c"
+          - "mkdir -p {{inputs.parameters.dest}};
+            chmod o+rw,g+s {{inputs.parameters.dest}}"
+        mirrorVolumeMounts: true
+    container:
+      image: "{{workflow.parameters.downloader_image}}:{{workflow.parameters.downloader_tag}}"
+      command: ["/ko-app/model_downloader"]
+      args: ["--model", "{{inputs.parameters.model}}",
+             "--dest", "{{inputs.parameters.dest}}",
+             "--type", "{{inputs.parameters.type}}"]
+      resources:
+        requests:
+          memory: 512Mi
+          cpu: "2"
+        limits:
+          memory: 512Mi
+          cpu: "2"
+      volumeMounts:
+        - mountPath: "/{{workflow.parameters.pvc}}"
+          name: "{{workflow.parameters.pvc}}"
+    volumes:
+      - name: "{{workflow.parameters.pvc}}"
+        persistentVolumeClaim:
+           claimName: "{{workflow.parameters.pvc}}"
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: topology.kubernetes.io/region
+              operator: In
+              values:
+              - "{{workflow.parameters.region}}"
+
+  - name: model-inference-service
+    inputs:
+      parameters:
+        - name: command
+    resource:
+      action: apply
+      successCondition: status.conditions.3.status == True
+      failureCondition: status.conditions.3.status == False
+      manifest: |
+        apiVersion: serving.kubeflow.org/v1beta1
+        kind: InferenceService
+        metadata:
+          name: inference-{{ workflow.parameters.run_name }}
+          annotations:
+            autoscaling.knative.dev/scaleToZeroPodRetentionPeriod: 20m
+        spec:
+          predictor:
+            minReplicas: 0
+            maxReplicas: 1
+            affinity:
+              nodeAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                    - matchExpressions:
+                        - key: gpu.nvidia.com/class
+                          operator: In
+                          values:
+                            - "{{workflow.parameters.inference_gpu}}"
+                        - key: topology.kubernetes.io/region
+                          operator: In
+                          values:
+                            - "{{workflow.parameters.region}}"
+            containers:
+              - name: kfserving-container
+                image: "{{workflow.parameters.inference_image}}:{{workflow.parameters.inference_tag}}"
+                imagePullPolicy: IfNotPresent
+                command: {{inputs.parameters.command}}
+                env:
+                  - name: STORAGE_URI
+                    value: pvc://{{ workflow.parameters.pvc }}/models/
+                resources:
+                  requests:
+                    nvidia.com/gpu: 1
+                    cpu: 4
+                    memory: 8Gi
+                  limits:
+                    nvidia.com/gpu: 1
+                    cpu: 12
+                    memory: 60Gi

@@ -1,0 +1,81 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: "model-downloader-template"
+spec:
+  entrypoint: main
+  arguments:
+    parameters:
+    - name: pvc
+      value: 'stable-diffusion-model-cache'
+    - name: model
+      value: 'stabilityai/stable-diffusion-2-1-base'
+    - name: downloader_image
+      value: 'ghcr.io/wbrown/gpt_bpe/model_downloader'
+    - name: downloader_tag
+      value: 'e2ef65f'
+    - name: region
+      value: 'LAS1'
+    - name: dest
+      value: "/{{workflow.parameters.pvc}}/models/{{workflow.parameters.model}}"
+
+  templates:
+  - name: main
+    steps:
+    - - name: downloader
+        template: model-downloader
+        arguments:
+          parameters:
+            - name: model
+              value: "{{workflow.parameters.model}}"
+            - name: dest
+              value: "/{{workflow.parameters.pvc}}/models/{{workflow.parameters.model}}"
+            - name: type
+              value: "diffusers"
+
+  - name: model-downloader
+    inputs:
+      parameters:
+        - name: model
+        - name: dest
+        - name: type
+    retryStrategy:
+      limit: 1
+    initContainers:
+      - name: dataset-perms
+        image: alpine:3.17
+        command: [ "/bin/sh" ]
+        args:
+          - "-c"
+          - "mkdir -p {{inputs.parameters.dest}};
+            chmod o+rw,g+s {{inputs.parameters.dest}}"
+        mirrorVolumeMounts: true
+    container:
+      image: "{{workflow.parameters.downloader_image}}:{{workflow.parameters.downloader_tag}}"
+      command: ["/ko-app/model_downloader"]
+      args: ["--model", "{{inputs.parameters.model}}",
+             "--dest", "{{inputs.parameters.dest}}",
+             "--type", "{{inputs.parameters.type}}"]
+      resources:
+        requests:
+          memory: 512Mi
+          cpu: "2"
+        limits:
+          memory: 512Mi
+          cpu: "2"
+      volumeMounts:
+        - mountPath: "/{{workflow.parameters.pvc}}"
+          name: "{{workflow.parameters.pvc}}"
+    volumes:
+      - name: "{{workflow.parameters.pvc}}"
+        persistentVolumeClaim:
+           claimName: "{{workflow.parameters.pvc}}"
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: topology.kubernetes.io/region
+              operator: In
+              values:
+              - "{{workflow.parameters.region}}"

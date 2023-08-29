@@ -35,7 +35,6 @@ First we'll do it in our local environment:
 - [KServe](#kserve): You must install these tools:
 > If you start from scratch, KServe requires Kubernetes 1.17+, Knative 0.19+, Istio 1.9+.
 
-
 <!-- 
 - [go](https://go.dev/dl/): KServe controller is written in Go and requires Go 1.18.0+.
 - git: For source control.

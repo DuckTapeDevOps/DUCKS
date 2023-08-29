@@ -1,0 +1,48 @@
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  namespace: tenant-73a3be-dev
+  name: service-creator-role
+rules:
+- apiGroups: ["serving.knative.dev"]
+  resources: ["services"]
+  verbs: ["get", "watch", "list", "create", "update", "patch", "delete"] # Adjust this as needed
+- apiGroups: [""]  # This is the core API group
+  resources: ["*"] # This means all resources in the core API group
+  verbs: ["get", "watch", "list", "create", "update", "patch", "delete"] # All verbs, i.e., admin permissions
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: service-creator-rolebinding
+  namespace: tenant-73a3be-dev
+subjects:
+- kind: User
+  name: token-HWrrDEqqqP7ANcrkCd9G
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role
+  name: service-creator-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: node-viewer
+rules:
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "watch", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: node-viewer-binding
+subjects:
+- kind: User
+  name: token-HWrrDEqqqP7ANcrkCd9G
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: node-viewer
+  apiGroup: rbac.authorization.k8s.io
